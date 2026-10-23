@@ -12,22 +12,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-
-cat << 'EOF' > .github/workflows/run-agent.yml
-name: Autonomous Email Agent
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-
-jobs:
-  run-agent:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
