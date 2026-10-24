@@ -1,89 +1,111 @@
+import sys
+print("DEBUG: Python runtime started successfully!", flush=True)
+
 import os
 import json
-from google import genai
-from google.genai import types
+import datetime
+import traceback
+import google.generativeai as genai
 
-# Initialize the Gemini client using the environment variable injected by GitHub Actions
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+print("DEBUG: Imports completed.", flush=True)
 
-# Sample database of leads
-TARGET_LEADS = [
+# 1. Configure Gemini API Key
+api_key = os.environ.get("GEMINI_API_KEY")
+if not api_key:
+    raise ValueError("GEMINI_API_KEY environment variable is missing!")
+
+genai.configure(api_key=api_key)
+print("DEBUG: Gemini configured successfully.", flush=True)
+
+# Prospect Database with Buyer Intent & Tracking States
+prospects = [
     {
-        "name": "John",
-        "company": "Global Spice Importers LLC",
-        "industry": "Food Distribution & Retail",
-        "notes": "Looking for reliable bulk pink salt and organic spices with consistent supply chains."
+        "company": "Global Spice & Minerals Inc.",
+        "contact_name": "Sarah Jenkins",
+        "email": "sarah.jenkins@example-importer.com",
+        "market": "North America",
+        "buyer_interest": "Looking for food-grade Himalayan pink salt crystals and organic turmeric in bulk.",
+        "status": "Pending Initial Outreach",
+        "follow_up_count": 0
     },
     {
-        "name": "Sarah",
-        "company": "Nordic Gourmet Foods",
-        "industry": "European Specialty Grocery",
-        "notes": "Interested in sustainable sourcing, eco-friendly packaging, and premium pink salt lamps."
+        "company": "EuroFood Trade GmbH",
+        "contact_name": "Lukas Weber",
+        "email": "lukas.weber@example-trade.de",
+        "market": "Europe",
+        "buyer_interest": "Sourcing ethically harvested gourmet salt slabs and chemical-free spices.",
+        "status": "Pending Initial Outreach",
+        "follow_up_count": 0
     }
 ]
 
-def generate_custom_outreach(lead):
-    """
-    Uses Gemini to research, structure, and write a hyper-personalized professional outreach email.
-    """
-    prompt = f"""
-    You are an expert B2B export and technical sales copywriter for a Pakistani salt and spice export venture. 
-    Your goal is to write a highly professional, short, and compelling cold outreach email.
-    
-    Target Recipient Details:
-    - Name: {lead['name']}
-    - Company: {lead['company']}
-    - Industry: {lead['industry']}
-    - Specific Context/Notes: {lead['notes']}
-    
-    Sender Offering:
-    - Premium quality pink salt and authentic spice exports from Pakistan, direct sourcing, strict quality control, reliability, and custom private labeling.
-    
-    Email Best Practices to Follow:
-    1. Subject Line: Keep it 3 to 6 words, lowercase or sentence case, specific, natural, and free of hype words.
-    2. Opening Line: Make it about *them* and their business/industry challenges, not about us.
-    3. Body: Concise (50 to 120 words), focusing on value, reliability, and direct sourcing.
-    4. Call to Action (CTA): End with one easy, low-friction question (e.g., "Open to seeing a sample catalog?").
-    5. Tone: Professional, respectful, consultative, and warm.
-    
-    Output Format:
-    Return the response strictly in the following format:
-    SUBJECT: [Generated Subject Line]
-    BODY:
-    [Generated Email Body]
-    """
 
-    print(f"-> Generating tailored outreach for {lead['name']} at {lead['company']}...")
+def generate_pitch(prospect):
+    """Generates an executive B2B pitch with built-in error handling."""
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        prompt = f"""
+        You are the Head of International Trade at Indus Export Hub, a premier direct exporter of Himalayan Pink Salt and Organic Spices from Pakistan.
+        Write a professional, compelling B2B cold outreach email to a prospective buyer.
 
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt,
-    )
-    
-    return response.text
+        Buyer Details:
+        - Company: {prospect['company']}
+        - Contact Name: {prospect['contact_name']}
+        - Market: {prospect['market']}
+        - Requirements: {prospect['buyer_interest']}
+
+        Our Direct Contact Info:
+        - Phone/WhatsApp: +92 3136125836
+        - Official Trade Email: heshi.pvt@gmail.com
+
+        Keep the tone executive, highlight direct-from-source pricing and flexible container shipments. Sign off as Indus Export Hub Team.
+        """
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"⚠️ API warning for {prospect['company']}: {e}. Using professional fallback template.")
+        return f"""Dear {prospect['contact_name']},
+
+We hope this email finds you well at {prospect['company']}.
+
+As a leading direct exporter of premium Himalayan Pink Salt and organic spices from Pakistan through Indus Export Hub, we specialize in meeting high-volume import demands with rigorous quality assurance and competitive source pricing.
+
+We would love to discuss how we can support your upcoming supply requirements in {prospect['market']}. You can reach us directly via WhatsApp at +92 3136125836 or reply to this email at heshi.pvt@gmail.com.
+
+Best regards,
+Indus Export Hub Team
+"""
+
 
 def run_campaign():
-    campaign_log = []
-    
-    print("🚀 Starting Autonomous B2B Outreach Campaign...\n")
-    
-    for lead in TARGET_LEADS:
-        email_content = generate_custom_outreach(lead)
-        
-        # Save record for tracking / logging
-        campaign_log.append({
-            "recipient": lead['name'],
-            "company": lead['company'],
-            "generated_pitch": email_content,
-            "status": "Drafted & Ready"
-        })
-        print(f"Successfully generated pitch for {lead['name']}\n" + "-"*40)
+    print("🚀 Starting Indus Export Hub Autonomous Email & Tracking System...", flush=True)
+    campaign_results = []
 
-    # Save the run results to a log file
-    with open("campaign_results.json", "w") as f:
-        json.dump(campaign_log, f, indent=4)
-        
-    print("✅ Campaign batch complete! Results saved to campaign_results.json")
+    for prospect in prospects:
+        print(f"🔄 Processing outreach for {prospect['company']}...", flush=True)
+        email_body = generate_pitch(prospect)
+
+        prospect["status"] = "Initial Pitch Drafted"
+        prospect["last_contact"] = str(datetime.date.today())
+        prospect["follow_up_count"] += 1
+
+        campaign_results.append({
+            "company": prospect["company"],
+            "contact_name": prospect["contact_name"],
+            "recipient": prospect["email"],
+            "status": prospect["status"],
+            "last_contact": prospect["last_contact"],
+            "follow_up_count": prospect["follow_up_count"],
+            "email_content": email_body
+        })
+        print(f"✅ Successfully processed {prospect['company']}.\n", flush=True)
+
+    output_file = "campaign_results.json"
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(campaign_results, f, indent=4)
+
+    print(f"📁 Campaign tracking state saved successfully to {output_file}", flush=True)
+
 
 if __name__ == "__main__":
     run_campaign()
