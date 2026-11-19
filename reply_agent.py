@@ -13,7 +13,7 @@ if not os.environ.get("GEMINI_API_KEY"):
     raise ValueError("GEMINI_API_KEY environment variable is missing!")
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-3.8-flash")
 
 
 def get_header(message, name):
