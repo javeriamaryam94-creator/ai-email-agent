@@ -1,12 +1,15 @@
-
 import sys
 print("DEBUG: Python runtime started successfully!", flush=True)
 
 import os
+import base64
+from email.message import EmailMessage
 import json
 import datetime
 import traceback
 import google.generativeai as genai
+
+from gmail_auth import get_gmail_service
 
 print("DEBUG: Imports completed.", flush=True)
 
@@ -27,7 +30,7 @@ prospects = [
         "market": "North America",
         "buyer_interest": "Looking for food-grade Himalayan pink salt crystals and organic turmeric in bulk.",
         "status": "Pending Initial Outreach",
-        "follow_up_count": 0
+        "follow_up_count": 0,
     },
     {
         "company": "EuroFood Trade GmbH",
@@ -36,6 +39,23 @@ prospects = [
         "market": "Europe",
         "buyer_interest": "Sourcing ethically harvested gourmet salt slabs and chemical-free spices.",
         "status": "Pending Initial Outreach",
-        "follow_up_count": 0
-    }
+        "follow_up_count": 0,
+    },
 ]
+
+
+def send_gmail(to, subject, body):
+    service = get_gmail_service()
+    gmail_user = service.users().getProfile(userId="me").execute()["emailAddress"]
+
+    message = EmailMessage()
+    message["From"] = gmail_user
+    message["To"] = to
+    message["Subject"] = subject
+    message.set_content(body)
+
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+    return service.users().messages().send(
+        userId="me",
+        body={"raw": raw_message},
+    ).execute()

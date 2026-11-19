@@ -1,83 +1,111 @@
 import os
-import imaplib
-import email
-import smtplib
-from email.mime.text import MIMEText
+import base64
+from email.message import EmailMessage
+from email.utils import parseaddr
+
 import google.generativeai as genai
 
+from gmail_auth import get_gmail_service
+
+
 # Configure Gemini API
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+if not os.environ.get("GEMINI_API_KEY"):
+    raise ValueError("GEMINI_API_KEY environment variable is missing!")
+
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 model = genai.GenerativeModel("gemini-1.5-flash")
 
+
+def get_header(message, name):
+    return next(
+        (header["value"] for header in message["payload"].get("headers", [])
+         if header["name"].lower() == name.lower()),
+        "",
+    )
+
+
+def get_plain_text(message):
+    payload = message["payload"]
+
+    def walk(part):
+        if part.get("mimeType") == "text/plain" and part.get("body", {}).get("data"):
+            return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="ignore")
+        for child in part.get("parts", []):
+            text = walk(child)
+            if text:
+                return text
+        return ""
+
+    return walk(payload)
+
+
 def check_and_reply_inbox():
-    gmail_user = os.environ.get("GMAIL_USER")
-    gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
-    
-    if not gmail_user or not gmail_password:
-        print("Gmail credentials missing.")
-        return
+    service = get_gmail_service()
+    gmail_user = service.users().getProfile(userId="me").execute()["emailAddress"]
 
-    print("Connecting to Gmail IMAP to check unread buyer replies...")
+    print("Checking Gmail for unread buyer replies...")
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(gmail_user, gmail_password)
-        mail.select("inbox")
+        result = service.users().messages().list(
+            userId="me", q="is:unread", maxResults=20
+        ).execute()
 
-        # Search for unread emails
-        status, messages = mail.search(None, '(UNSEEN)')
-        if status != 'OK':
-            print("No new messages found.")
-            return
+        for summary in result.get("messages", []):
+            message_id = summary["id"]
+            message = service.users().messages().get(
+                userId="me", id=message_id, format="full"
+            ).execute()
 
-        for num in messages[0].split():
-            res, msg_data = mail.fetch(num, '(RFC822)')
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    subject = msg["Subject"]
-                    sender = msg["From"]
-                    
-                    # Extract body text
-                    body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                body = part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                    else:
-                        body = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
+            subject = get_header(message, "Subject")
+            sender_header = get_header(message, "From")
+            sender = parseaddr(sender_header)[1]
+            original_message_id = get_header(message, "Message-ID")
+            thread_id = message["threadId"]
+            body = get_plain_text(message)
 
-                    print(f"New reply from {sender} | Subject: {subject}")
+            print(f"New reply from {sender} | Subject: {subject}")
 
-                    # Generate AI response using Gemini
-                    prompt = f"""
-                    You are an expert B2B Export Manager for 'Indus Export Hub' (Himalayan Pink Salt & organic spices).
-                    A prospective buyer replied to our cold outreach:
-                    - Sender: {sender}
-                    - Subject: {subject}
-                    - Message: {body}
-                    
-                    Write a professional, formal, helpful B2B reply addressing their inquiries (such as MOQ, FOB/CIF pricing, or quality certificates like ISO/HACCP/Halal). Keep it concise and executive-level.
-                    Return ONLY the reply email body text.
-                    """
-                    
-                    response = model.generate_content(prompt)
-                    ai_reply_text = response.text.strip()
+            prompt = f"""
+            You are an expert B2B Export Manager for 'Indus Export Hub'
+            (Himalayan Pink Salt & organic spices).
+            A prospective buyer replied to our cold outreach:
+            - Sender: {sender}
+            - Subject: {subject}
+            - Message: {body}
 
-                    # Send the automated reply back via SMTP
-                    msg_reply = MIMEText(ai_reply_text)
-                    msg_reply['Subject'] = f"Re: {subject}"
-                    msg_reply['From'] = gmail_user
-                    msg_reply['To'] = sender
+            Write a professional, formal, helpful B2B reply addressing their
+            inquiries (such as MOQ, FOB/CIF pricing, or quality certificates
+            like ISO/HACCP/Halal). Keep it concise and executive-level.
+            Return ONLY the reply email body text.
+            """
 
-                    server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-                    server.login(gmail_user, gmail_password)
-                    server.sendmail(gmail_user, sender, msg_reply.as_string())
-                    server.quit()
-                    print(f"Successfully sent automated AI reply to {sender}")
+            ai_reply_text = model.generate_content(prompt).text.strip()
 
-        mail.logout()
-    except Exception as e:
-        print(f"Error checking replies: {e}")
+            reply = EmailMessage()
+            reply["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+            reply["From"] = gmail_user
+            reply["To"] = sender
+            if original_message_id:
+                reply["In-Reply-To"] = original_message_id
+                reply["References"] = original_message_id
+            reply.set_content(ai_reply_text)
+
+            raw_message = base64.urlsafe_b64encode(reply.as_bytes()).decode("utf-8")
+            service.users().messages().send(
+                userId="me",
+                body={"raw": raw_message, "threadId": thread_id},
+            ).execute()
+
+            service.users().messages().modify(
+                userId="me",
+                id=message_id,
+                body={"removeLabelIds": ["UNREAD"]},
+            ).execute()
+
+            print(f"Successfully sent threaded Gmail API reply to {sender}")
+
+    except Exception as error:
+        print(f"Error checking replies: {error}")
+
 
 if __name__ == "__main__":
     check_and_reply_inbox()
