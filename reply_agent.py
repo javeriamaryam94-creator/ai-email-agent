@@ -64,13 +64,18 @@ def generate_reply_with_retry(prompt, retries=5, timeout=30):
         except Exception as exc:
             last_err = exc
             msg = str(exc).lower()
-            is_transient = (
-                "503" in msg
-                or "unavailable" in msg
-                or "timeout" in msg
-                or "timed out" in msg
-                or "429" in msg
-            )
+is_daily_quota = (
+    "per day" in msg
+    or "requests per day" in msg
+    or "generaterequestsperday" in msg
+)
+is_transient = (
+    "503" in msg
+    or "unavailable" in msg
+    or "timeout" in msg
+    or "timed out" in msg
+    or ("429" in msg and not is_daily_quota)
+)
             if not is_transient or attempt == retries - 1:
                 raise
             sleep_s = min(2 ** attempt, 16)
