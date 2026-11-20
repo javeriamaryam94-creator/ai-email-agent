@@ -19,6 +19,10 @@ SKIP_SENDERS = (
     "notifications@",
     "mailer-daemon",
     "postmaster",
+    "mustakbil",
+    "jobs",
+    "newsletter",
+    "digest",
 )
 
 
